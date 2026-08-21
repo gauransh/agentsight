@@ -21,6 +21,11 @@ const OPERATION_WEIGHTS = { read: 1, write: 2, create: 2.5, rename: 2.5, delete:
 const SHELL_EVIDENCE = 0.42;
 const SEARCH_EVIDENCE = 0.68;
 const DIRECTORY_SCOPE_EVIDENCE = 0.10;
+const FIT_FRAME_FILL = 0.8;
+const FIT_MAX_SCALE = 2.6;
+const FIT_MIN_SCALE = 0.2;
+const FIT_MIN_SPAN_PX = 1;
+const FIT_MAX_SIZE_SCALE = 1.5;
 
 const modelCache = new WeakMap();
 
@@ -1234,6 +1239,32 @@ function directoryLegend(points, current, model) {
   return { type: "group", right: 12, top: 12, silent: true, z: 100, children };
 }
 
+function fitTransform(nodes) {
+  let minX = Number.POSITIVE_INFINITY;
+  let maxX = Number.NEGATIVE_INFINITY;
+  let minY = Number.POSITIVE_INFINITY;
+  let maxY = Number.NEGATIVE_INFINITY;
+  for (const node of nodes) {
+    if (!Number.isFinite(node.x) || !Number.isFinite(node.y)) continue;
+    if (node.x < minX) minX = node.x;
+    if (node.x > maxX) maxX = node.x;
+    if (node.y < minY) minY = node.y;
+    if (node.y > maxY) maxY = node.y;
+  }
+  if (minX > maxX || minY > maxY) return { scale: 1, centerX: 0.5, centerY: 0.5 };
+  const centerX = (minX + maxX) / 2;
+  const centerY = (minY + maxY) / 2;
+  const spanX = (maxX - minX) * WIDTH;
+  const spanY = (maxY - minY) * HEIGHT;
+  if (Math.max(spanX, spanY) < FIT_MIN_SPAN_PX) return { scale: 1, centerX, centerY };
+  const scale = Math.min(
+    (FIT_FRAME_FILL * WIDTH) / Math.max(spanX, FIT_MIN_SPAN_PX),
+    (FIT_FRAME_FILL * HEIGHT) / Math.max(spanY, FIT_MIN_SPAN_PX),
+  );
+  if (!Number.isFinite(scale)) return { scale: 1, centerX, centerY };
+  return { scale: clamp(scale, FIT_MIN_SCALE, FIT_MAX_SCALE), centerX, centerY };
+}
+
 export function repositoryNebula(data, cursorMs, h) {
   const model = modelFor(data);
   const layoutStep = Number(data.meta?.render_layout_step);
@@ -1245,7 +1276,10 @@ export function repositoryNebula(data, cursorMs, h) {
     ? advanceTo(model, clamp(layoutStep, 0, model.events.length - 1))
     : snapshotAt(model, cursorMs);
   if (!current) return emptyOption(h);
-  const cameraScale = clamp(0.92 + 3 / Math.sqrt(Math.max(1, current.nodes.length)), 0.92, 1.8);
+  const fit = fitTransform(current.nodes);
+  const fitX = (x) => clamp(0.5 + (x - fit.centerX) * fit.scale, 0.02, 0.98);
+  const fitY = (y) => clamp(0.5 + (y - fit.centerY) * fit.scale, 0.02, 0.98);
+  const sizeScale = fit.scale > 1 ? Math.min(Math.sqrt(fit.scale), FIT_MAX_SIZE_SCALE) : 1;
 
   const points = current.nodes.map((node) => {
     const age = current.actionStep - node.lastStep;
@@ -1268,11 +1302,7 @@ export function repositoryNebula(data, cursorMs, h) {
     const size = focusedNodeSize(node, strength);
     return {
       id: node.path,
-      value: [
-        clamp(0.5 + (node.x - 0.5) * cameraScale, 0.02, 0.98),
-        clamp(0.5 + (node.y - 0.5) * cameraScale, 0.02, 0.98),
-        node.visits,
-      ],
+      value: [fitX(node.x), fitY(node.y), node.visits],
       path: node.path,
       directory: parentDirectory(node.path),
       visits: node.visits,
@@ -1294,7 +1324,7 @@ export function repositoryNebula(data, cursorMs, h) {
       lifecycleType: node.lifecycleType,
       lifecycleStep: node.lifecycleStep,
       lifecycleScale: node.lifecycleScale,
-      symbolSize: size,
+      symbolSize: size * sizeScale,
       itemStyle: {
         color: rgbString(node.color),
         opacity: baseline * node.opacity,
@@ -1329,10 +1359,7 @@ export function repositoryNebula(data, cursorMs, h) {
     const x = current.focus.x / WIDTH;
     const y = current.focus.y / HEIGHT;
     return [ring({
-      value: [
-        clamp(0.5 + (x - 0.5) * cameraScale, 0.02, 0.98),
-        clamp(0.5 + (y - 0.5) * cameraScale, 0.02, 0.98),
-      ],
+      value: [fitX(x), fitY(y)],
     }, 14 + 10 * strength, "#dcecff", 0.08 + 0.24 * strength)];
   })() : [];
 
