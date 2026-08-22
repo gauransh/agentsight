@@ -212,6 +212,14 @@ enum Commands {
         /// Compact GIF/MP4 uniformly by action to this duration, or use `full`.
         #[arg(long, default_value = "30s")]
         compact_rate: agentvis::CompactRate,
+        /// Render exactly this one session transcript instead of discovering
+        /// every local session. One file is one session, so this is what makes
+        /// a graph belong to a single run.
+        #[arg(long, conflicts_with = "global")]
+        transcript: Option<PathBuf>,
+        /// Correlation id copied verbatim into the document metadata.
+        #[arg(long)]
+        run_id: Option<String>,
     },
     /// Bind this machine to the hosted AgentSight app.
     Bind {
@@ -428,7 +436,16 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             outputs,
             global,
             compact_rate,
-        } => agentvis::run_vis(path, outputs, *global, *compact_rate)?,
+            transcript,
+            run_id,
+        } => agentvis::run_vis(
+            path,
+            outputs,
+            *global,
+            *compact_rate,
+            transcript.as_deref(),
+            run_id.as_deref(),
+        )?,
         Commands::Bind {
             qr,
             no_open,

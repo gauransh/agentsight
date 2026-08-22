@@ -91,18 +91,24 @@ pub fn run_vis(
     outputs: &[PathBuf],
     global: bool,
     compact_rate: CompactRate,
+    transcript: Option<&Path>,
+    run_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let started = Instant::now();
     let outputs = requested_outputs(outputs)?;
     eprintln!("[evolution 1/5] repository  {}", repo.display());
-    eprintln!(
-        "[evolution 2/5] sessions    scanning Claude + Codex + Gemini + Cursor{}",
-        if global { " globally" } else { "" }
-    );
+    match transcript {
+        Some(path) => eprintln!("[evolution 2/5] sessions    one transcript  {}", path.display()),
+        None => eprintln!(
+            "[evolution 2/5] sessions    scanning Claude + Codex + Gemini + Cursor{}",
+            if global { " globally" } else { "" }
+        ),
+    }
     let scan = Instant::now();
     let trace = build_repository_trace(&RepositoryTraceOptions {
         repo: repo.into(),
         global,
+        transcript: transcript.map(PathBuf::from),
     })?;
     eprintln!(
         "[evolution 3/5] actions     {} sessions · {} source events · {} tool actions · {} file actions · {:.1}s",
@@ -119,7 +125,19 @@ pub fn run_vis(
             "endpoint_revision": trace.revision,
             "window_start_ms": trace.start_ms,
             "window_end_ms": trace.end_ms,
-            "session_scope": if trace.global { "global_tool_operations" } else { "repository_identity" },
+            "session_scope": if transcript.is_some() {
+                "single_session"
+            } else if trace.global {
+                "global_tool_operations"
+            } else {
+                "repository_identity"
+            },
+            // Which session this graph is, and which run it belongs to, so a
+            // consumer can pair it with that run's terminal recording without
+            // parsing the document. Absent (not null) when unknown: a reader
+            // must not mistake "we did not look" for "there is none".
+            "session_id": single_session_id(&trace.events),
+            "run_id": run_id,
         },
         "events": trace.events,
         "commits": trace.commits_ms.into_iter().map(|committed_at_ms| json!({ "committed_at_ms": committed_at_ms })).collect::<Vec<_>>(),
@@ -533,4 +551,19 @@ mod tests {
         assert!(html.contains("AgentVis.initialize"));
         assert!(!html.contains("\"</script>\""));
     }
+}
+
+/// The one session id in this trace, when there is exactly one. A
+/// single-transcript render always has one; a repository-scoped render over
+/// several sessions has none to name, and saying nothing is the honest answer.
+fn single_session_id(events: &[crate::repository::RepositoryEvent]) -> Option<&str> {
+    let mut seen: Option<&str> = None;
+    for event in events {
+        match seen {
+            None => seen = Some(event.session_id.as_str()),
+            Some(first) if first == event.session_id => {}
+            Some(_) => return None,
+        }
+    }
+    seen
 }
