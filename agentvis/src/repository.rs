@@ -18,6 +18,11 @@ use std::process::{Command, Stdio};
 pub struct RepositoryTraceOptions {
     pub repo: PathBuf,
     pub global: bool,
+    /// Render exactly this one session transcript instead of discovering every
+    /// session under the home directory. One transcript file is one session, so
+    /// this is what makes a graph belong to a single run: a second session
+    /// against the same repository is never opened, parsed, or serialized.
+    pub transcript: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,10 +72,26 @@ pub fn build_repository_trace(options: &RepositoryTraceOptions) -> io::Result<Re
     let remote = git_text(&repo, &["remote", "get-url", "origin"])
         .ok()
         .map(|value| normalize_repository_url(&value));
-    let mut candidates = discover_session_files()
-        .into_iter()
-        .filter(|candidate| candidate_may_match_repo(candidate, &roots, remote.as_deref()))
-        .collect::<Vec<_>>();
+    let mut candidates = match options.transcript.as_deref() {
+        // The caller named one transcript, so neither discovery nor the
+        // repo-match filter applies: it already knows which session it wants.
+        // A transcript belonging to some other repository is not a contamination
+        // risk — resolve_path keeps every file action inside this repo's roots,
+        // so a mismatch yields an empty graph rather than a wrong one.
+        Some(path) => vec![session_candidate_from_path(path).ok_or_else(|| {
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!(
+                    "{} is not a recognized agent session transcript",
+                    path.display()
+                ),
+            )
+        })?],
+        None => discover_session_files()
+            .into_iter()
+            .filter(|candidate| candidate_may_match_repo(candidate, &roots, remote.as_deref()))
+            .collect::<Vec<_>>(),
+    };
     candidates.sort_by(|left, right| left.path.cmp(&right.path));
     let (mut events, source_event_count) = scan_sessions(&candidates, &roots, options.global)?;
     annotate_directory_scopes(&repo, &mut events)?;

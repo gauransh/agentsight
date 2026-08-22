@@ -28,7 +28,13 @@ let frameIndex = 0;
 let moments = [];
 let frameTimes = [];
 let playing = 0;
-const exportMode = new URLSearchParams(location.search).has("still");
+const function scopeLabel(scope) {
+  if (scope === "global_tool_operations") return "all local sessions targeting repository";
+  if (scope === "single_session") return "this session";
+  return "repository sessions";
+}
+
+exportMode = new URLSearchParams(location.search).has("still");
 
 const timeLabel = (value) => new Date(value).toISOString().replace("T", " ").replace(".000Z", " UTC");
 const dayLabel = (value) => new Date(value).toISOString().slice(0, 10);
@@ -103,7 +109,7 @@ function initialize(payload) {
   $("view-note").textContent = "Files are stars. Root entries define color; paths define attraction.";
   $("provenance").textContent = [
     `repository: ${data.meta.repository}`,
-    `scope: ${data.meta.session_scope === "global_tool_operations" ? "all local sessions targeting repository" : "repository sessions"}`,
+    `scope: ${scopeLabel(data.meta.session_scope)}`,
     `revision: ${data.meta.endpoint_revision.slice(0, 12)}`,
     `window: ${dayLabel(data.meta.window_start_ms)} → ${dayLabel(data.meta.window_end_ms)}`,
     "generator: evolution renderer",
