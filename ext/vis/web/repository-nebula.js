@@ -27,6 +27,47 @@ const FIT_MIN_SCALE = 0.2;
 const FIT_MIN_SPAN_PX = 1;
 const FIT_MAX_SIZE_SCALE = 1.5;
 
+// The artifact is dark-native, but an embedding product whose shell is light
+// passes ?theme=light so the graph sits in the page instead of on it.
+// Resolution order: explicit ?theme= param, then the OS preference, then dark.
+// Resolved ONCE at load — the palette is baked into every frame, so an embed
+// that flips theme re-points the iframe (a reload), never repaints in place.
+export const ARTIFACT_THEME = (() => {
+  if (typeof window === "undefined") return "dark";
+  try {
+    const param = new URLSearchParams(window.location.search).get("theme");
+    if (param === "light" || param === "dark") return param;
+    if (window.matchMedia?.("(prefers-color-scheme: light)").matches) return "light";
+  } catch { /* non-browser hosts render the dark artifact */ }
+  return "dark";
+})();
+
+const DARK_PAINT = {
+  panelFill: "rgba(5,10,18,.78)", panelStroke: "rgba(120,155,190,.18)",
+  textStrong: "#dce8f7", text: "#91a6bd", textDim: "#74869c",
+  rowText: "#b4c2d2", rowTextActive: "#f4f8ff", countText: "#71849a", faintText: "#607287",
+  readRing: "#f7ffff", scopeRing: "#b7cce2", readShadow: "#ffffff", writeShadow: "#ff9b78",
+  writeRipple: "#ff9678", focusRing: "#dcecff",
+  create: "#75f0a9", rename: "#63dfff", del: "#ff647c", activeStroke: "#ffffff",
+  // Deeper directories lift toward white on the dark sky.
+  starLightness: (depth) => Math.min(0.84, 0.58 + 0.055 * depth),
+  starChroma: (depth) => Math.max(0.08, 0.17 - 0.015 * depth),
+};
+
+const LIGHT_PAINT = {
+  panelFill: "rgba(255,255,255,.86)", panelStroke: "rgba(45,65,90,.22)",
+  textStrong: "#1c2b3a", text: "#44586e", textDim: "#5c7086",
+  rowText: "#3c5065", rowTextActive: "#12202e", countText: "#5c7086", faintText: "#71849a",
+  readRing: "#1c2b3a", scopeRing: "#44586e", readShadow: "#1c2b3a", writeShadow: "#c94f2a",
+  writeRipple: "#d95c33", focusRing: "#2d4a6b",
+  create: "#0f8a4d", rename: "#0f7fa8", del: "#c22945", activeStroke: "#12202e",
+  // Mirrored for paper: deeper directories sink toward ink, same hierarchy cue.
+  starLightness: (depth) => Math.max(0.40, 0.56 - 0.045 * depth),
+  starChroma: (depth) => Math.max(0.10, 0.19 - 0.012 * depth),
+};
+
+const PAINT = ARTIFACT_THEME === "light" ? LIGHT_PAINT : DARK_PAINT;
+
 const modelCache = new WeakMap();
 
 function clamp(value, minimum, maximum) { return Math.max(minimum, Math.min(maximum, value)); }
@@ -226,9 +267,7 @@ function buildPalette(actions, repository) {
     const depth = Math.max(0, directories.length - 1);
     const parent = directories.join("/") || "(root)";
     const hue = (baseHue.get(top) ?? seedHue) + (hashUnit(parent) * 2 - 1) * 8;
-    const lightness = Math.min(0.84, 0.58 + 0.055 * depth);
-    const chroma = Math.max(0.08, 0.17 - 0.015 * depth);
-    return oklchRgb(lightness, chroma, hue);
+    return oklchRgb(PAINT.starLightness(depth), PAINT.starChroma(depth), hue);
   };
 }
 
@@ -1157,7 +1196,7 @@ function readAttention(points) {
     .map((point) => ring(
       point,
       point.symbolSize + 6,
-      "#f7ffff",
+      PAINT.readRing,
       0.12 + 0.58 * point.strength,
     ));
 }
@@ -1166,7 +1205,7 @@ function scopeAttention(points) {
   return points.filter((point) => point.scopeStrength > 0).map((point) => ring(
     point,
     point.symbolSize + 3,
-    "#b7cce2",
+    PAINT.scopeRing,
     0.025 + 0.65 * point.scopeStrength,
   ));
 }
@@ -1195,11 +1234,11 @@ function directoryLegend(points, current, model) {
   const children = [
     {
       type: "rect", shape: { x: 0, y: 0, width: 236, height, r: 8 },
-      style: { fill: "rgba(5,10,18,.78)", stroke: "rgba(120,155,190,.18)", lineWidth: 1 },
+      style: { fill: PAINT.panelFill, stroke: PAINT.panelStroke, lineWidth: 1 },
     },
     {
       type: "text", style: {
-        x: 12, y: 11, text: "REPOSITORY AREAS", fill: "#91a6bd",
+        x: 12, y: 11, text: "REPOSITORY AREAS", fill: PAINT.text,
         font: "11px ui-monospace,monospace",
       },
     },
@@ -1209,31 +1248,31 @@ function directoryLegend(points, current, model) {
     children.push({
       type: "circle", shape: { cx: 15, cy: y + 4, r: row.active ? 5 : 4 },
       style: {
-        fill: row.color, stroke: row.active ? "#ffffff" : "transparent",
+        fill: row.color, stroke: row.active ? PAINT.activeStroke : "transparent",
         lineWidth: row.active ? 1.3 : 0, shadowBlur: row.active ? 8 : 0, shadowColor: row.color,
       },
     }, {
       type: "text", style: {
         x: 28, y, text: row.label, width: 154, overflow: "truncate",
-        fill: row.active ? "#f4f8ff" : "#b4c2d2", font: "11px ui-monospace,monospace",
+        fill: row.active ? PAINT.rowTextActive : PAINT.rowText, font: "11px ui-monospace,monospace",
       },
     }, {
       type: "text", style: {
         x: 222, y, text: String(row.count), textAlign: "right",
-        fill: "#71849a", font: "10px ui-monospace,monospace",
+        fill: PAINT.countText, font: "10px ui-monospace,monospace",
       },
     });
   });
   if (more) children.push({
     type: "text", style: {
       x: 12, y: 31 + 20 * rows.length, text: `+ ${more} more`,
-      fill: "#607287", font: "10px ui-monospace,monospace",
+      fill: PAINT.faintText, font: "10px ui-monospace,monospace",
     },
   });
   children.push({
     type: "text", style: {
       x: 12, y: height - 16, text: "color = path area · glow = attention",
-      fill: "#607287", font: "9px ui-monospace,monospace",
+      fill: PAINT.faintText, font: "9px ui-monospace,monospace",
     },
   });
   return { type: "group", right: 12, top: 12, silent: true, z: 100, children };
@@ -1330,7 +1369,7 @@ export function repositoryNebula(data, cursorMs, h) {
         opacity: baseline * node.opacity,
         shadowBlur: 1 + 4 * node.importance + 20 * strength,
         shadowColor: strength > 0
-          ? node.focusType === "read" ? "#ffffff" : "#ff9b78"
+          ? node.focusType === "read" ? PAINT.readShadow : PAINT.writeShadow
           : rgbString(node.color, 0.65),
       },
     };
@@ -1345,7 +1384,7 @@ export function repositoryNebula(data, cursorMs, h) {
       return ring(
         point,
         point.symbolSize + 8 + 34 * progress,
-        "#ff9678",
+        PAINT.writeRipple,
         (1 - progress) * 0.78 * clamp(point.strength / 0.75, 0, 1),
       );
     }));
@@ -1360,7 +1399,7 @@ export function repositoryNebula(data, cursorMs, h) {
     const y = current.focus.y / HEIGHT;
     return [ring({
       value: [fitX(x), fitY(y)],
-    }, 14 + 10 * strength, "#dcecff", 0.08 + 0.24 * strength)];
+    }, 14 + 10 * strength, PAINT.focusRing, 0.08 + 0.24 * strength)];
   })() : [];
 
   const lifecycle = points.filter((point) => (
@@ -1368,8 +1407,8 @@ export function repositoryNebula(data, cursorMs, h) {
   )).map((point) => {
     const age = current.actionStep - point.lifecycleStep;
     const progress = clamp(age / TRANSITION_STEPS, 0, 1);
-    const color = point.lifecycleType === "create" ? "#75f0a9"
-      : point.lifecycleType === "rename" ? "#63dfff" : "#ff647c";
+    const color = point.lifecycleType === "create" ? PAINT.create
+      : point.lifecycleType === "rename" ? PAINT.rename : PAINT.del;
     return ring(
       point,
       point.symbolSize + 12 + 28 * progress,
@@ -1400,25 +1439,25 @@ export function repositoryNebula(data, cursorMs, h) {
       children: [
         {
           type: "rect", shape: { x: 0, y: 0, width: 560, height: 64, r: 8 },
-          style: { fill: "rgba(5,10,18,.78)", stroke: "rgba(120,155,190,.18)", lineWidth: 1 },
+          style: { fill: PAINT.panelFill, stroke: PAINT.panelStroke, lineWidth: 1 },
         },
         {
           type: "text", style: {
             x: 14, y: 12, text: current.summary,
-            fill: "#dce8f7", font: "14px ui-monospace,monospace", width: 530, overflow: "truncate",
+            fill: PAINT.textStrong, font: "14px ui-monospace,monospace", width: 530, overflow: "truncate",
           },
         },
         {
           type: "text", style: {
             x: 14, y: 30, text: current.evidence,
-            fill: "#91a6bd", font: "11px ui-monospace,monospace", width: 530, overflow: "truncate",
+            fill: PAINT.text, font: "11px ui-monospace,monospace", width: 530, overflow: "truncate",
           },
         },
         {
           type: "text", style: {
             x: 14, y: 47,
             text: `${new Date(current.ts_ms).toISOString()} · step ${current.step + 1}/${model.events.length} · ${points.length} files`,
-            fill: "#74869c", font: "10px ui-monospace,monospace",
+            fill: PAINT.textDim, font: "10px ui-monospace,monospace",
           },
         },
       ],

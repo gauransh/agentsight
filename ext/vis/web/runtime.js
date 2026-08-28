@@ -6,19 +6,23 @@ import {
   BufferTarget, CanvasSource, Mp4OutputFormat, Output, QUALITY_HIGH, canEncodeVideo,
 } from "mediabunny";
 import {
-  nebulaVisualMoments, repositoryNebula,
+  ARTIFACT_THEME, nebulaVisualMoments, repositoryNebula,
 } from "./repository-nebula.js";
 
 use([ScatterChart, GraphicComponent, GridComponent, TooltipComponent, CanvasRenderer, SVGRenderer]);
 
 const $ = (id) => document.getElementById(id);
 const PLAYBACK_FRAME_MS = 125;
-const palette = { text: "#dce8f7", muted: "#71839a", line: "rgba(135,160,190,.18)" };
+const palette = ARTIFACT_THEME === "light"
+  ? { text: "#1c2b3a", muted: "#5c7086", line: "rgba(45,65,90,.22)",
+      tooltipBg: "#ffffff", tooltipBorder: "rgba(45,65,90,.3)" }
+  : { text: "#dce8f7", muted: "#71839a", line: "rgba(135,160,190,.18)",
+      tooltipBg: "#0b121c", tooltipBorder: "rgba(135,160,190,.28)" };
 const helper = { base: () => ({
   backgroundColor: "transparent", animation: false,
   textStyle: { color: palette.text, fontFamily: "Inter,system-ui,sans-serif" },
-  tooltip: { trigger: "item", renderMode: "richText", backgroundColor: "#0b121c",
-    borderColor: "rgba(135,160,190,.28)", textStyle: { color: palette.text, fontSize: 12 } },
+  tooltip: { trigger: "item", renderMode: "richText", backgroundColor: palette.tooltipBg,
+    borderColor: palette.tooltipBorder, textStyle: { color: palette.text, fontSize: 12 } },
 }) };
 
 let chart;
