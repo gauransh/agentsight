@@ -1239,7 +1239,7 @@ function directoryLegend(points, current, model) {
     {
       type: "text", style: {
         x: 12, y: 11, text: "REPOSITORY AREAS", fill: PAINT.text,
-        font: "11px ui-monospace,monospace",
+        font: "11px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace",
       },
     },
   ];
@@ -1254,25 +1254,25 @@ function directoryLegend(points, current, model) {
     }, {
       type: "text", style: {
         x: 28, y, text: row.label, width: 154, overflow: "truncate",
-        fill: row.active ? PAINT.rowTextActive : PAINT.rowText, font: "11px ui-monospace,monospace",
+        fill: row.active ? PAINT.rowTextActive : PAINT.rowText, font: "11px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace",
       },
     }, {
       type: "text", style: {
         x: 222, y, text: String(row.count), textAlign: "right",
-        fill: PAINT.countText, font: "10px ui-monospace,monospace",
+        fill: PAINT.countText, font: "10px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace",
       },
     });
   });
   if (more) children.push({
     type: "text", style: {
       x: 12, y: 31 + 20 * rows.length, text: `+ ${more} more`,
-      fill: PAINT.faintText, font: "10px ui-monospace,monospace",
+      fill: PAINT.faintText, font: "10px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace",
     },
   });
   children.push({
     type: "text", style: {
       x: 12, y: height - 16, text: "color = path area · glow = attention",
-      fill: PAINT.faintText, font: "9px ui-monospace,monospace",
+      fill: PAINT.faintText, font: "9px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace",
     },
   });
   return { type: "group", right: 12, top: 12, silent: true, z: 100, children };
@@ -1444,20 +1444,20 @@ export function repositoryNebula(data, cursorMs, h) {
         {
           type: "text", style: {
             x: 14, y: 12, text: current.summary,
-            fill: PAINT.textStrong, font: "14px ui-monospace,monospace", width: 530, overflow: "truncate",
+            fill: PAINT.textStrong, font: "14px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace", width: 530, overflow: "truncate",
           },
         },
         {
           type: "text", style: {
             x: 14, y: 30, text: current.evidence,
-            fill: PAINT.text, font: "11px ui-monospace,monospace", width: 530, overflow: "truncate",
+            fill: PAINT.text, font: "11px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace", width: 530, overflow: "truncate",
           },
         },
         {
           type: "text", style: {
             x: 14, y: 47,
             text: `${new Date(current.ts_ms).toISOString()} · step ${current.step + 1}/${model.events.length} · ${points.length} files`,
-            fill: PAINT.textDim, font: "10px ui-monospace,monospace",
+            fill: PAINT.textDim, font: "10px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace",
           },
         },
       ],
