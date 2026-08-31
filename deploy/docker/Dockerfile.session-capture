@@ -49,13 +49,17 @@ ENV CARGO_TARGET_DIR=/build/target
 WORKDIR /src
 
 # This repository is not a cargo workspace: every crate builds standalone, and
-# the collector reaches the other four through path dependencies. Copying only
-# those five keeps the rest of the tree (bpf/, frontend/, libbpf/, docs/) out of
-# the build. Ordered least- to most-frequently changed for layer reuse.
-COPY agent-session ./agent-session
+# the collector reaches the others through path dependencies. Copying only that
+# closure keeps the rest of the tree (bpf/, frontend/, libbpf/, docs/) out of
+# the build. The upstream merge moved the extension crates under ext/ —
+# collector/Cargo.toml names ../ext/session, ../ext/vis and ../ext/analysis
+# now — so the copies mirror that layout, or the build dies at the first COPY.
+# Ordered least- to most-frequently changed for layer reuse.
 COPY agentsight-protocol ./agentsight-protocol
-COPY agentvis ./agentvis
 COPY agentsight-capture ./agentsight-capture
+COPY ext/session ./ext/session
+COPY ext/analysis ./ext/analysis
+COPY ext/vis ./ext/vis
 COPY collector ./collector
 
 # No --features flag: `bridge` is a feature of agentsight-protocol, not of the
