@@ -80,7 +80,12 @@ pub fn build_repository_trace(options: &RepositoryTraceOptions) -> io::Result<Re
         .map(|event| &event.session_id)
         .collect::<HashSet<_>>()
         .len();
-    let mut commits_ms = git_lines(&repo, &["log", "--all", "--format=%ct"])?
+    // Degrades with the git plane (see `repository_root`): no history is a
+    // commit rail with nothing on it, which is what an unversioned directory
+    // honestly has. A repository whose first commit does not exist yet takes
+    // this path too, and for the same reason.
+    let mut commits_ms = git_lines(&repo, &["log", "--all", "--format=%ct"])
+        .unwrap_or_default()
         .into_iter()
         .filter_map(|value| value.parse::<i64>().ok().map(|seconds| seconds * 1_000))
         .collect::<Vec<_>>();
@@ -95,7 +100,13 @@ pub fn build_repository_trace(options: &RepositoryTraceOptions) -> io::Result<Re
             .and_then(|value| value.to_str())
             .unwrap_or("repository")
             .into(),
-        revision: git_text(&repo, &["rev-parse", "HEAD"])?.trim().into(),
+        // Empty where there is no git plane to ask, rather than fatal: the
+        // revision labels the graph, and a session's own file actions are
+        // worth drawing whether or not a commit can be named beside them.
+        revision: git_text(&repo, &["rev-parse", "HEAD"])
+            .unwrap_or_default()
+            .trim()
+            .into(),
         start_ms,
         end_ms,
         global: options.global,
@@ -301,7 +312,11 @@ fn append_session(
 }
 
 fn annotate_directory_scopes(repo: &Path, events: &mut [RepositoryEvent]) -> io::Result<()> {
-    let mut paths = git_lines(repo, &["ls-files"])?;
+    // The tracked-file list only SEEDS the directory set; the events below
+    // extend it. Without a git plane the seed is empty and scope is decided by
+    // the paths the session itself touched, which is a smaller answer than a
+    // checkout gives but never a wrong one.
+    let mut paths = git_lines(repo, &["ls-files"]).unwrap_or_default();
     paths.extend(events.iter().flat_map(|event| {
         event.actions.iter().flat_map(|action| {
             std::iter::once(action.path.clone()).chain(action.previous_path.clone())
@@ -547,11 +562,33 @@ fn session_header(path: &Path) -> String {
         .collect()
 }
 
+/// The git top level containing `path`, or `path` itself where there is no git
+/// plane to ask.
+///
+/// The fallback is the whole reason this returns rather than fails. An agent
+/// session is worth drawing wherever it ran, and the caller that renders one
+/// per run (hcp's evolution renderer) hands us a run's workspace, which is a
+/// checkout when the run was given one and a plain directory when it was not.
+/// Refusing the second case turned "this run had no repository" into "this run
+/// has no graph, and no reason given" — the artifact simply never appeared,
+/// because the process died before writing one.
+///
+/// Only a MISSING git plane degrades. A path that does not exist still fails,
+/// through `canonicalize` below: that is a caller error, not a repository that
+/// happens to be unversioned.
 fn repository_root(path: &Path) -> io::Result<PathBuf> {
     let path = path.canonicalize()?;
-    Ok(PathBuf::from(
-        git_text(&path, &["rev-parse", "--show-toplevel"])?.trim(),
-    ))
+    let Ok(toplevel) = git_text(&path, &["rev-parse", "--show-toplevel"]) else {
+        return Ok(path);
+    };
+    let toplevel = toplevel.trim();
+    // `--show-toplevel` answers empty inside a bare repository, which is a
+    // directory with no working tree for a session to have touched.
+    Ok(if toplevel.is_empty() {
+        path
+    } else {
+        PathBuf::from(toplevel)
+    })
 }
 
 fn worktree_roots(repo: &Path) -> Vec<PathBuf> {
@@ -798,6 +835,30 @@ mod tests {
             &roots,
             None
         ));
+    }
+
+    #[test]
+    fn an_unversioned_directory_is_its_own_root_rather_than_a_failure() {
+        // The run-workspace case: hcp renders one graph per run, and a run
+        // given no checkout still has a directory it worked in. This used to
+        // return the `git rev-parse --show-toplevel` error, which killed the
+        // renderer before it wrote anything — the run then reported no graph
+        // and no reason, forever.
+        let temp = tempfile::tempdir().expect("tempdir");
+        let plain = temp.path().join("no-git-here");
+        std::fs::create_dir_all(&plain).expect("create plain directory");
+        assert_eq!(
+            repository_root(&plain).expect("an unversioned directory is not an error"),
+            plain.canonicalize().expect("canonicalize"),
+        );
+    }
+
+    #[test]
+    fn a_path_that_does_not_exist_is_still_an_error() {
+        // The degradation is for a missing GIT PLANE, never for a missing
+        // path: a caller that named nothing must hear so.
+        let temp = tempfile::tempdir().expect("tempdir");
+        assert!(repository_root(&temp.path().join("absent")).is_err());
     }
 
     #[test]
