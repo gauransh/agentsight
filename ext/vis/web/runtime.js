@@ -38,7 +38,7 @@ function scopeLabel(scope) {
   return "repository sessions";
 }
 
-exportMode = new URLSearchParams(location.search).has("still");
+const exportMode = new URLSearchParams(location.search).has("still");
 
 const timeLabel = (value) => new Date(value).toISOString().replace("T", " ").replace(".000Z", " UTC");
 const dayLabel = (value) => new Date(value).toISOString().slice(0, 10);
