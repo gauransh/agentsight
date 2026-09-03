@@ -32,7 +32,7 @@ let frameIndex = 0;
 let moments = [];
 let frameTimes = [];
 let playing = 0;
-const function scopeLabel(scope) {
+function scopeLabel(scope) {
   if (scope === "global_tool_operations") return "all local sessions targeting repository";
   if (scope === "single_session") return "this session";
   return "repository sessions";
