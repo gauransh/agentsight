@@ -43,10 +43,11 @@ to `secrets: inherit` to resolve a workflow conflict.
 
 ## Local validation
 
-With Python 3.9+, PyYAML 6, and a sandbox checkout containing the pinned SHA:
+With Python 3.9+, PyYAML 6, and local AgentSight and sandbox checkouts, use the
+shared helper from sandbox. Its checkout must contain the caller's pinned SHA:
 
 ```bash
-rtk proxy python3 .github/tests/test_mirror_workflow.py /path/to/sandbox-checkout
+rtk proxy python3 /path/to/sandbox-checkout/scripts/test/test_ecr_mirror_callers.py /path/to/agentsight-checkout --expected-image session-capture
 rtk git diff --check
 ```
 
@@ -56,8 +57,10 @@ the `session-capture` image and account, permissions and dependency gate,
 and fourteen executions of the actual Bash preflight: two accepted tags
 and twelve rejected cases covering length boundaries, uppercase/non-hex
 text, whitespace, newlines, shell text, paths and extra arguments. Python
-and PyYAML are only local test dependencies; the workflow requests no
-credentials and checks out no code during tag validation.
+and PyYAML are only local test dependencies. This single sandbox helper covers
+both callers, avoiding duplicate test sources and preserving ARO's Rust-only
+policy. The workflow requests no credentials and checks out no code during
+tag validation.
 
 ## Canary and rollout gates
 
@@ -116,6 +119,8 @@ Terraform apply, image deletion, or change to a running image.
 
 On 2026-09-06, all three contract tests and fourteen Bash cases passed
 against sandbox commit `918e1ff54bfda7b8ae31058726e0d3bf9979643a`. The tests
-failed against the previous local workflow before this change. No registry
-copy, OIDC canary, cloud configuration change, or deployment was executed.
+failed against the previous local workflow before this change. The same
+coverage passed after moving the duplicate caller helpers into sandbox.
+No registry copy, OIDC canary, cloud configuration change, or deployment was
+executed.
 Workflow adoption alone is not evidence of realized cloud savings.
