@@ -1461,12 +1461,14 @@ mod tests {
         let program = temp.path().join("gemini-probe");
         let arguments = temp.path().join("arguments");
         let input = temp.path().join("input");
+        let complete = temp.path().join("complete");
         std::fs::write(
             &program,
             format!(
-                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\ncat > '{}'\n",
+                "#!/bin/sh\nprintf '%s\\n' \"$@\" > '{}'\ncat > '{}'\nprintf 'complete\\n' > '{}'\n",
                 arguments.display(),
-                input.display()
+                input.display(),
+                complete.display()
             ),
         )
         .unwrap();
@@ -1490,6 +1492,15 @@ mod tests {
             }
         }
         result.unwrap();
+        // Resume acknowledges submission while the child may still be running.
+        // Wait for the probe to finish consuming stdin before inspecting files.
+        tokio::time::timeout(Duration::from_secs(5), async {
+            while !complete.exists() {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("Gemini probe did not finish consuming the submitted message");
         assert_eq!(
             std::fs::read_to_string(arguments).unwrap(),
             "--resume\ngemini-session\n"
