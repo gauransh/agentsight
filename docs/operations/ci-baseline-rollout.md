@@ -76,9 +76,9 @@ repairing runtime state. Do not remove the strict Clippy or 15-token checks.
 
 ## Verification record
 
-Local macOS validation on September 6/7, 2026. Final tested code is
-`0ce4c9158dd9746ac7137a61be5d67f89a4d7c63`; the following commit adds only
-this verification/runbook record.
+Local macOS validation on September 6/7, 2026. Full-suite-tested code is
+`0ce4c9158dd9746ac7137a61be5d67f89a4d7c63`; the subsequent Windows-only
+compilation follow-up and its validation are recorded below.
 
 - `rtk cargo test --manifest-path ext/vis/Cargo.toml --offline`: 18 passed.
 - `rtk cargo test --manifest-path collector/Cargo.toml --locked --offline`:
@@ -99,3 +99,13 @@ The local host only has the macOS Rust target. Native Windows execution is
 not claimed; the PR's Windows workflow is required before release. The four
 existing authenticated provider smoke tests remain ignored by default and
 were not run. No paid provider calls were made for this validation.
+
+The first native Windows run progressed past Unix API compilation but then
+failed strict warnings on bridge-only helpers. Code commit
+`338fa69845e3b0051038d37c89e9426117683881` narrows five compile conditions in
+three files: Unix bridge entry helpers are Unix-only, while the projection
+module remains available to portable unit tests. No warning is suppressed.
+All-target Clippy and 24 focused tests (host projection, live view and bind)
+passed on macOS; code review approved the change. The final Windows CI run
+must verify that platform before promotion. Native macOS CI had passed at
+the preceding head; it is rerun with this follow-up.
