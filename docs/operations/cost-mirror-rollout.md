@@ -27,8 +27,11 @@ The reviewed ARO reconciliation uses the same preflight and interface; its
    If the upstream merge uses squash or rebase, preserve access to the
    pinned commit or update the pin to the reviewed merged commit and rerun
    the contract check.
-2. Merge this reconciliation into current Agentsight main after final-base
-   CI and review. It replaces #4's one-file caller change; do not merge both
+2. Merge native CI baseline
+   [#6](https://github.com/gauransh/agentsight/pull/6) first. This branch
+   includes that reviewed baseline so CI exercises the combined result.
+   Reconcile current main and rerun final-base CI before merging this
+   reconciliation. It replaces #4's one-file caller change; do not merge both
    independently. Update or close #4 after its replacement lands, linking
    the replacement. The existing branch does not need a history rewrite.
 3. ARO's corresponding caller can land independently after sandbox #337.
@@ -124,3 +127,13 @@ coverage passed after moving the duplicate caller helpers into sandbox.
 No registry copy, OIDC canary, cloud configuration change, or deployment was
 executed.
 Workflow adoption alone is not evidence of realized cloud savings.
+
+The combined branch also contains #6's native CI repairs. Its tested code is
+`0ce4c9158dd9746ac7137a61be5d67f89a4d7c63`: 160 collector tests passed,
+4 authenticated-provider tests were ignored, 18 visualization tests passed,
+and the real Codex 0.153.4 localhost smoke retained the exact 15-token check.
+The merge has no runtime/test differences from that reviewed baseline.
+The three mirror contract tests and fourteen Bash cases passed again after
+integration. See [ci-baseline-rollout.md](ci-baseline-rollout.md) for native
+CI evidence, platform release gates and rollback. Native Windows CI remains
+required; successful local macOS validation does not prove Windows execution.
