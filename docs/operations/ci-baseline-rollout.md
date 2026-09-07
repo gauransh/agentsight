@@ -109,3 +109,9 @@ All-target Clippy and 24 focused tests (host projection, live view and bind)
 passed on macOS; code review approved the change. The final Windows CI run
 must verify that platform before promotion. Native macOS CI had passed at
 the preceding head; it is rerun with this follow-up.
+
+Windows then reached the export fixtures, whose full-directory filters did
+not match normalized session paths. Those two tests now use the unique
+temporary directory basename, preserving the limit and every assertion.
+All five export tests and scoped formatting passed locally; code review
+approved the change. Native Windows CI must still pass on the final head.
