@@ -98,7 +98,10 @@ pub fn run_vis(
     let outputs = requested_outputs(outputs)?;
     eprintln!("[evolution 1/5] repository  {}", repo.display());
     match transcript {
-        Some(path) => eprintln!("[evolution 2/5] sessions    one transcript  {}", path.display()),
+        Some(path) => eprintln!(
+            "[evolution 2/5] sessions    one transcript  {}",
+            path.display()
+        ),
         None => eprintln!(
             "[evolution 2/5] sessions    scanning Claude + Codex + Gemini + Cursor{}",
             if global { " globally" } else { "" }
@@ -499,6 +502,21 @@ fn html_document(payload: &serde_json::Value) -> Result<String, serde_json::Erro
     ))
 }
 
+/// The one session id in this trace, when there is exactly one. A
+/// single-transcript render always has one; a repository-scoped render over
+/// several sessions has none to name, and saying nothing is the honest answer.
+fn single_session_id(events: &[crate::repository::RepositoryEvent]) -> Option<&str> {
+    let mut seen: Option<&str> = None;
+    for event in events {
+        match seen {
+            None => seen = Some(event.session_id.as_str()),
+            Some(first) if first == event.session_id => {}
+            Some(_) => return None,
+        }
+    }
+    seen
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -551,19 +569,4 @@ mod tests {
         assert!(html.contains("AgentVis.initialize"));
         assert!(!html.contains("\"</script>\""));
     }
-}
-
-/// The one session id in this trace, when there is exactly one. A
-/// single-transcript render always has one; a repository-scoped render over
-/// several sessions has none to name, and saying nothing is the honest answer.
-fn single_session_id(events: &[crate::repository::RepositoryEvent]) -> Option<&str> {
-    let mut seen: Option<&str> = None;
-    for event in events {
-        match seen {
-            None => seen = Some(event.session_id.as_str()),
-            Some(first) if first == event.session_id => {}
-            Some(_) => return None,
-        }
-    }
-    seen
 }

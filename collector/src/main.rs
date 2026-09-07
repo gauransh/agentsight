@@ -424,6 +424,7 @@ async fn main() {
 
 async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cli = Cli::parse();
+    validate_command_platform(&cli.command).map_err(convert_runner_error)?;
     let suppress_terminal_output = command_uses_top_tui(&cli);
     init_logging(suppress_terminal_output);
     if !matches!(&cli.command, Commands::Vis { .. }) {
@@ -550,6 +551,17 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         }
     }
     Ok(())
+}
+
+fn validate_command_platform(command: &Commands) -> Result<(), runners::RunnerError> {
+    let socket_path = match command {
+        Commands::Top { bridge_socket, .. } | Commands::Record { bridge_socket, .. } => {
+            bridge_socket.as_deref()
+        }
+        Commands::Debug(debug) => debug.bridge_socket(),
+        _ => None,
+    };
+    cmd_trace::validate_bridge_platform(socket_path)
 }
 
 async fn run_report(
@@ -756,6 +768,66 @@ async fn run_with_extractor(
 #[cfg(test)]
 mod tests {
     use super::{Cli, Commands, needs_ebpf_binaries, top_uses_tui};
+
+    #[test]
+    fn bridge_platform_validation_covers_every_cli_entry_point() {
+        for command in [
+            vec!["top", "--headless"],
+            vec!["record", "-p", "42"],
+            vec![
+                "debug",
+                "trace",
+                "--ssl",
+                "false",
+                "--process",
+                "false",
+                "--system",
+            ],
+        ] {
+            let mut args = vec!["agentsight"];
+            args.extend(command);
+            args.extend(["--bridge-socket", "/run/aro/bridge.sock"]);
+            let cli = <Cli as clap::Parser>::try_parse_from(&args).unwrap();
+            let result = super::validate_command_platform(&cli.command);
+            if cfg!(unix) {
+                assert!(result.is_ok(), "{args:?}: {result:?}");
+            } else {
+                let error = result.expect_err("a bridge cannot start on this platform");
+                assert!(
+                    error
+                        .to_string()
+                        .contains("--bridge-socket requires a Unix platform")
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn commands_without_a_bridge_pass_platform_validation() {
+        for command in [
+            vec!["top", "--plain", "--once"],
+            vec!["report", "--local"],
+            vec!["bind", "--no-open"],
+            vec!["record", "-p", "42"],
+            vec![
+                "debug",
+                "trace",
+                "--ssl",
+                "false",
+                "--process",
+                "false",
+                "--system",
+            ],
+        ] {
+            let mut args = vec!["agentsight"];
+            args.extend(command);
+            let cli = <Cli as clap::Parser>::try_parse_from(&args).unwrap();
+            assert!(
+                super::validate_command_platform(&cli.command).is_ok(),
+                "{args:?}"
+            );
+        }
+    }
 
     #[test]
     fn default_interactive_top_uses_tui() {

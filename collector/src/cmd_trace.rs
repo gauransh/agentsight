@@ -37,6 +37,18 @@ const AGENT_NATIVE_SESSION_LIMIT: usize = 25;
 /// Floor on the refresh period, so `--system-interval 0` cannot spin.
 const MIN_REFRESH_SECS: u64 = 1;
 
+pub(crate) const UNSUPPORTED_BRIDGE_MESSAGE: &str =
+    "--bridge-socket requires a Unix platform; the evidence bridge is unavailable on this platform";
+
+pub(crate) fn validate_bridge_platform(
+    socket_path: Option<&std::path::Path>,
+) -> Result<(), RunnerError> {
+    if socket_path.is_some() && !cfg!(unix) {
+        return Err(RunnerError::from(UNSUPPORTED_BRIDGE_MESSAGE));
+    }
+    Ok(())
+}
+
 pub(crate) struct StartedWebServer {
     pub(crate) url: String,
     pub(crate) _handle: tokio::task::JoinHandle<()>,
@@ -428,6 +440,7 @@ pub(crate) async fn start_bridge_if_enabled(
     view: SharedMaterializedView,
     live_sessions: SharedLiveView,
 ) -> Result<Option<crate::server::bridge::BridgeServerHandle>, RunnerError> {
+    validate_bridge_platform(socket_path)?;
     let Some(socket_path) = socket_path else {
         return Ok(None);
     };
@@ -781,6 +794,30 @@ pub(crate) async fn run_debug_runner<R: Runner>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn no_bridge_socket_requires_no_platform_support() {
+        let handle =
+            start_bridge_if_enabled(None, MaterializedView::shared_bounded(), shared_live_view())
+                .await
+                .expect("the bridge is optional on every platform");
+        assert!(handle.is_none());
+    }
+
+    #[cfg(not(unix))]
+    #[tokio::test]
+    async fn an_internal_bridge_request_is_explicitly_rejected_on_unsupported_platforms() {
+        let result = start_bridge_if_enabled(
+            Some(std::path::Path::new("bridge.sock")),
+            MaterializedView::shared_bounded(),
+            shared_live_view(),
+        )
+        .await;
+        match result {
+            Err(error) => assert!(error.to_string().contains(UNSUPPORTED_BRIDGE_MESSAGE)),
+            Ok(_) => panic!("a requested bridge must fail rather than silently disappear"),
+        }
+    }
 
     #[test]
     fn process_args_forward_the_cgroup_filter() {
