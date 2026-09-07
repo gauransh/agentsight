@@ -114,8 +114,10 @@ fn top_discovers_agent_native_sessions() {
     .expect("codex session");
 
     let tz = std::ffi::OsStr::new("UTC");
+    // Keep unrelated live agents on the host from displacing the fixture row.
+    let fixture_filter = temp.path().to_str().expect("fixture path should be UTF-8");
     let top = agentsight_stdout_with_env(
-        &["top", "--once", "--limit", "20"],
+        &["top", "--once", "--limit", "20", "--comm", fixture_filter],
         &[("HOME", temp.path().as_os_str()), ("TZ", tz)],
     );
     assert!(top.contains("live sessions"), "{top}");
@@ -146,8 +148,9 @@ fn top_reads_active_claude_local_session_model_and_tokens() {
     )
     .expect("claude session");
 
+    let fixture_filter = temp.path().to_str().expect("fixture path should be UTF-8");
     let top = agentsight_stdout_with_env(
-        &["top", "--once", "--limit", "20"],
+        &["top", "--once", "--limit", "20", "--comm", fixture_filter],
         &[("HOME", temp.path().as_os_str())],
     );
     assert!(top.contains("claude:"), "{top}");
