@@ -36,6 +36,12 @@ What `record -- <command>` does automatically:
 Useful flags: `--binary-path <path>` to override auto-discovery, `--no-server`
 to disable the web UI, and `--server-port <port>`.
 
+The optional `--bridge-socket` flag on `top`, `record`, and `debug trace`
+requires a Unix platform (Linux or macOS). On Windows, requesting the bridge
+fails before capture or command startup with an explicit unsupported-platform
+error. Portable commands such as `top`, `report`, and `bind` remain available
+without this flag.
+
 ## Claude Code
 
 Claude Code is a Bun-based application with BoringSSL statically linked and

@@ -21,6 +21,13 @@ pub(crate) struct DebugCli {
 }
 
 impl DebugCli {
+    pub(crate) fn bridge_socket(&self) -> Option<&std::path::Path> {
+        match &self.command {
+            DebugCommand::Trace { bridge_socket, .. } => bridge_socket.as_deref(),
+            _ => None,
+        }
+    }
+
     /// Whether this debug invocation will actually run an eBPF probe.
     ///
     /// Only `debug trace` can be told to run none: everything else here either
