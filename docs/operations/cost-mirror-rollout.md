@@ -132,7 +132,10 @@ The combined branch also contains #6's native CI repairs. Its tested code is
 `0ce4c9158dd9746ac7137a61be5d67f89a4d7c63`: 160 collector tests passed,
 4 authenticated-provider tests were ignored, 18 visualization tests passed,
 and the real Codex 0.153.4 localhost smoke retained the exact 15-token check.
-The merge has no runtime/test differences from that reviewed baseline.
+The later Windows compile follow-up `338fa69845e3b0051038d37c89e9426117683881`
+keeps bridge-only helpers Unix-specific and retains portable projection tests;
+all-target Clippy and 24 focused macOS tests passed. This merge has no
+runtime/test differences from that reviewed follow-up.
 The three mirror contract tests and fourteen Bash cases passed again after
 integration. See [ci-baseline-rollout.md](ci-baseline-rollout.md) for native
 CI evidence, platform release gates and rollback. Native Windows CI remains
