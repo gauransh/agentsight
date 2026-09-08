@@ -66,6 +66,27 @@ fn is_false(value: &bool) -> bool {
     !*value
 }
 
+/// The transcript named by `--transcript`, or the reason it cannot be used.
+/// Recognition is path-shaped, so a missing or unreadable file would otherwise
+/// become a candidate the parser drops silently and render an empty graph.
+fn named_transcript_candidate(path: &Path) -> io::Result<SessionCandidate> {
+    std::fs::File::open(path).map_err(|err| {
+        io::Error::new(
+            err.kind(),
+            format!("cannot read transcript {}: {err}", path.display()),
+        )
+    })?;
+    session_candidate_from_path(path).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!(
+                "{} is not a recognized agent session transcript",
+                path.display()
+            ),
+        )
+    })
+}
+
 pub fn build_repository_trace(options: &RepositoryTraceOptions) -> io::Result<RepositoryTrace> {
     let repo = repository_root(&options.repo)?;
     let roots = worktree_roots(&repo);
@@ -78,15 +99,7 @@ pub fn build_repository_trace(options: &RepositoryTraceOptions) -> io::Result<Re
         // A transcript belonging to some other repository is not a contamination
         // risk — resolve_path keeps every file action inside this repo's roots,
         // so a mismatch yields an empty graph rather than a wrong one.
-        Some(path) => vec![session_candidate_from_path(path).ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidInput,
-                format!(
-                    "{} is not a recognized agent session transcript",
-                    path.display()
-                ),
-            )
-        })?],
+        Some(path) => vec![named_transcript_candidate(path)?],
         None => discover_session_files()
             .into_iter()
             .filter(|candidate| candidate_may_match_repo(candidate, &roots, remote.as_deref()))
@@ -997,5 +1010,16 @@ mod tests {
         append_session(&value, 2, &["/repo".into()], false, &mut batch);
         assert_eq!(batch.0.len(), 1);
         assert_eq!(batch.0[0].ts_ms, 2);
+    }
+
+    #[test]
+    fn a_missing_transcript_is_an_error_not_an_empty_graph() {
+        let path = std::env::temp_dir().join(format!(
+            "agentvis-missing-{}/.codex/sessions/2026/09/08/rollout-missing.jsonl",
+            std::process::id()
+        ));
+        let err = named_transcript_candidate(&path).unwrap_err();
+        assert_eq!(err.kind(), io::ErrorKind::NotFound);
+        assert!(err.to_string().contains("cannot read transcript"));
     }
 }
