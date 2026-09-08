@@ -5,12 +5,14 @@ use crate::model::{AuditCounters, SessionRow, Snapshot};
 use crate::output::{AgentProcessRow, AgentTopOutput, AgentTopRow, TopOptions};
 use crate::sources::agent_native as agent_native_sessions;
 use crate::sources::proc::{self as procfs, ProcSnapshot as LiveSample};
+#[cfg(unix)]
 use crate::view::host_sessions::{self, HOST_SESSION_LIMIT};
 use crate::view::process_select;
 use crate::view::session_process_match::{
     LiveProcessCandidate, SessionProcessMatch, SessionProcessMatcher, session_path_from_raw_path,
 };
 use crate::view::top::{recent_failures, sort_agent_rows, top_sections};
+#[cfg(unix)]
 use agentsight_protocol::bridge::HostSessionRow;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io;
@@ -132,6 +134,7 @@ impl LiveView {
     /// Same rows, same registry, same refresh as the top view: the projection
     /// only decides what may leave the process. Nothing here scans anything the
     /// top view did not already scan.
+    #[cfg(unix)]
     pub(crate) fn host_sessions(
         &mut self,
         capture: Option<&LiveCaptureSnapshot>,
@@ -431,7 +434,7 @@ impl LiveView {
         }
         if has_ebpf {
             notes.push(
-                "ebpf evidence is live process capture; SSL payload details still require record/stat"
+                "ebpf evidence is live process capture; SSL payload details still require record"
                     .to_string(),
             );
         }

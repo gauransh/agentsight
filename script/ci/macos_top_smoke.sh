@@ -12,6 +12,7 @@ fi
 mkdir -p "$(dirname "$OUT_FILE")"
 
 cargo build --manifest-path "$ROOT_DIR/collector/Cargo.toml" --verbose
+python3 "$ROOT_DIR/script/ci/test_codex_smoke_ready.py"
 
 TMP_ROOT="$(mktemp -d)"
 AGENT_PID=""
@@ -70,16 +71,10 @@ curl -fsS "http://127.0.0.1:$MOCK_PORT/health" >/dev/null
 ) &
 AGENT_PID=$!
 
-for _ in {1..1000}; do
-    if ps -p "$AGENT_PID" >/dev/null 2>&1 && \
-        grep -Rqs '"total_tokens":15' "$AGENT_HOME/.codex/sessions" 2>/dev/null; then
-        break
-    fi
-    sleep 0.01
-done
-
-if ! ps -p "$AGENT_PID" >/dev/null 2>&1 || \
-    ! grep -Rqs '"total_tokens":15' "$AGENT_HOME/.codex/sessions" 2>/dev/null; then
+# A raw substring can appear before the JSONL write is complete. Wait for the
+# cumulative record the session parser can consume before taking one snapshot.
+if ! python3 "$ROOT_DIR/script/ci/codex_smoke_ready.py" \
+    "$AGENT_HOME/.codex/sessions" 15 --pid "$AGENT_PID" --timeout 60; then
     echo "latest Codex did not record the expected token usage" >&2
     cat "$TMP_ROOT/mock-server.err" >&2 || true
     exit 1

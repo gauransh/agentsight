@@ -114,8 +114,14 @@ fn top_discovers_agent_native_sessions() {
     .expect("codex session");
 
     let tz = std::ffi::OsStr::new("UTC");
+    // The unique directory name also matches normalized Windows session paths.
+    let fixture_filter = temp
+        .path()
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .expect("fixture directory name should be UTF-8");
     let top = agentsight_stdout_with_env(
-        &["top", "--once", "--limit", "20"],
+        &["top", "--once", "--limit", "20", "--comm", fixture_filter],
         &[("HOME", temp.path().as_os_str()), ("TZ", tz)],
     );
     assert!(top.contains("live sessions"), "{top}");
@@ -146,8 +152,13 @@ fn top_reads_active_claude_local_session_model_and_tokens() {
     )
     .expect("claude session");
 
+    let fixture_filter = temp
+        .path()
+        .file_name()
+        .and_then(std::ffi::OsStr::to_str)
+        .expect("fixture directory name should be UTF-8");
     let top = agentsight_stdout_with_env(
-        &["top", "--once", "--limit", "20"],
+        &["top", "--once", "--limit", "20", "--comm", fixture_filter],
         &[("HOME", temp.path().as_os_str())],
     );
     assert!(top.contains("claude:"), "{top}");
