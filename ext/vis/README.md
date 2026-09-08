@@ -42,6 +42,24 @@ inside this repository. Each retained Tool action stays on the timeline; an
 action with no proven repository file effect produces an unchanged layout
 frame instead of disappearing.
 
+To render exactly one session, name its transcript instead of discovering
+sessions:
+
+```bash
+agentvis . --transcript ~/.claude/projects/<project>/<session>.jsonl --run-id run-123
+```
+
+`--transcript` takes one Claude, Codex, Gemini, or Cursor transcript file and
+renders that session alone. It conflicts with `--global` (one names a single
+file, the other widens discovery), and a path that is missing, unreadable, or
+not a recognized transcript is an error rather than an empty graph. `--run-id`
+is copied verbatim into the document metadata. The document's `meta` records
+`session_scope` (`single_session`, `repository_identity`, or
+`global_tool_operations`), `session_id` when the graph holds exactly one
+session, and `run_id` when one was given, so a consumer can pair the graph with
+that run's terminal recording without parsing the document. `agentsight vis`
+accepts the same flags.
+
 ## Example
 
 The committed ACTplane example uses the default 30-second action-uniform
