@@ -17,7 +17,7 @@ const DIRECTORY_MAX_SHARE = 0.42;
 const DIRECTORY_RANK_HYSTERESIS = 0.15;
 const IMPORTANCE_MIN_HALF_LIFE = 240;
 const IMPORTANCE_MAX_HALF_LIFE = 2_400;
-const OPERATION_WEIGHTS = { read: 1, write: 2, create: 2.5, rename: 2.5, delete: 2 };
+const OPERATION_WEIGHTS = { open: 1, read: 1, write: 2, create: 2.5, rename: 2.5, delete: 2 };
 const SHELL_EVIDENCE = 0.42;
 const SEARCH_EVIDENCE = 0.68;
 const DIRECTORY_SCOPE_EVIDENCE = 0.10;
@@ -119,6 +119,9 @@ function scopeDisplayPath(path) {
 }
 
 function actionEvidence(event, item) {
+  if (event.vendor === "recorded-activity" && item.access === "open") {
+    return { scale: 1, kind: "recorded file-open request" };
+  }
   if (item.scope) return { scale: DIRECTORY_SCOPE_EVIDENCE, kind: "directory scope" };
   if (event.category === "shell" || /^(bash|shell)$/i.test(event.tool_name ?? "")) {
     return { scale: SHELL_EVIDENCE, kind: "shell-inferred" };
@@ -133,7 +136,7 @@ function normalizeEvents(data) {
   const events = [...(data.events ?? [])].sort((left, right) => (
     Number(left.ts_ms) - Number(right.ts_ms) || compareText(String(left.id), String(right.id))
   ));
-  const priority = { rename: 0, delete: 1, create: 2, write: 3, read: 4 };
+  const priority = { rename: 0, delete: 1, create: 2, write: 3, read: 4, open: 5 };
   return events.filter((event) => Number.isFinite(Number(event.ts_ms))).map((event, eventStep) => {
     const actions = [];
     for (const [index, item] of (event.actions ?? []).entries()) {
@@ -147,6 +150,7 @@ function normalizeEvents(data) {
         ts_ms: Number(event.ts_ms),
         session_id: event.session_id,
         vendor: event.vendor,
+        status: event.status,
         eventStep,
         type,
         path: item.path,
@@ -362,6 +366,7 @@ function createNode(path, action, step, state, lifecycle = null) {
     firstTs: action.ts_ms,
     lastSession: action.session_id,
     lastVendor: action.vendor,
+    lastStatus: action.status,
     bornNear: parent?.path,
     colorFrom: parent ? currentColor(parent, step) : targetColor,
     colorTo: targetColor,
@@ -385,7 +390,7 @@ function decayedImportance(node, step, halfLife) {
 }
 
 function recordImportance(node, action, step, state) {
-  const gains = { read: 1, write: 2.5, create: 4, rename: 4, delete: 4 };
+  const gains = { open: 1, read: 1, write: 2.5, create: 4, rename: 4, delete: 4 };
   let gain = gains[action.type] ?? 1;
   const session = action.session_id;
   if (session && !node.sessions.has(session)) {
@@ -512,7 +517,8 @@ function applyAction(action, step, state) {
   node.focusScale = action.evidenceScale;
   node.lastSession = action.session_id;
   node.lastVendor = action.vendor;
-  node.visits += action.type === "read" ? 1 : 2;
+  node.lastStatus = action.status;
+  node.visits += action.type === "read" || action.type === "open" ? 1 : 2;
   recordImportance(node, action, step, state);
   if (action.type === "create") {
     node.lifecycleType = "create";
@@ -921,6 +927,10 @@ function nodeOpacity(node, step) {
 function summarizeEvent(event) {
   const { actions } = event;
   const tool = event.command_name || event.tool_name || event.category;
+  if (event.vendor === "recorded-activity") {
+    const paths = actions.length === 1 ? actions[0].path : `${actions.length} file-open requests`;
+    return `recorded activity · ${tool} · ${event.status} · ${paths}`;
+  }
   if (!actions.length) return `${event.vendor} · ${tool} · ${event.status} · no repository file action`;
   const counts = new Map();
   for (const action of actions) counts.set(action.type, (counts.get(action.type) ?? 0) + 1);
@@ -929,7 +939,7 @@ function summarizeEvent(event) {
     const action = actions[0];
     return `${action.vendor} · ${tool} · ${action.type}${action.scope ? " scope" : ""} · ${action.oldPath ? `${action.oldPath} → ` : ""}${action.path}`;
   }
-  const summary = ["read", "write", "create", "rename", "delete"]
+  const summary = ["open", "read", "write", "create", "rename", "delete"]
     .filter((type) => counts.has(type))
     .map((type) => `${counts.get(type)} ${type}`)
     .join(" / ");
@@ -937,6 +947,9 @@ function summarizeEvent(event) {
 }
 
 function summarizeEvidence(event, scopeCount) {
+  if (event.vendor === "recorded-activity") {
+    return "Recorded file-open request · does not establish a read, write, or file change";
+  }
   const tool = event.command_name || event.tool_name || event.category;
   const kinds = [...new Map(event.actions.map((action) => [
     action.evidenceKind, action.evidenceScale,
@@ -1003,6 +1016,7 @@ function snapshot(state, event) {
     firstTs: node.firstTs,
     lastSession: node.lastSession,
     lastVendor: node.lastVendor,
+    lastStatus: node.lastStatus,
     bornNear: node.bornNear,
     lifecycleType: node.lifecycleType,
     lifecycleStep: node.lifecycleStep,
@@ -1159,17 +1173,40 @@ export function nebulaVisualMoments(data) {
     .filter(Number.isFinite);
 }
 
-function emptyOption(h) {
+function activityMessage(title, detail) {
+  return {
+    type: "group", left: "center", top: "middle", silent: true,
+    children: [
+      { type: "text", style: {
+        text: title, textAlign: "center",
+        fill: PAINT.textStrong, font: "18px Inter,system-ui,sans-serif",
+      } },
+      { type: "text", style: {
+        y: 32, text: detail, textAlign: "center",
+        fill: PAINT.textDim, font: "13px Inter,system-ui,sans-serif",
+      } },
+    ],
+  };
+}
+
+function emptyOption(h, noActivity = false, recordedActivity = false) {
   return {
     ...h.base(),
     grid: { left: 8, right: 8, top: 8, bottom: 8 },
     xAxis: { type: "value", min: 0, max: 1, show: false },
     yAxis: { type: "value", min: 0, max: 1, show: false },
+    graphic: noActivity ? [activityMessage(
+      recordedActivity ? "No recorded file activity is available" : "No session activity is available",
+      recordedActivity
+        ? "No file-open events were available in this operation's audit records."
+        : "This graph has no recorded agent tool events to replay.",
+    )] : [],
     series: [
       { id: "files", name: "files", type: "scatter", data: [] },
       { id: "scope-rings", name: "directory scope", type: "scatter", data: [] },
       { id: "read-rings", name: "reads", type: "scatter", data: [] },
       { id: "write-ripples", name: "writes", type: "scatter", data: [] },
+      { id: "open-rings", name: "file-open requests", type: "scatter", data: [] },
       { id: "lifecycle", name: "lifecycle", type: "scatter", data: [] },
       { id: "trajectory-focus", name: "agent focus", type: "scatter", data: [] },
     ],
@@ -1306,6 +1343,8 @@ function fitTransform(nodes) {
 
 export function repositoryNebula(data, cursorMs, h) {
   const model = modelFor(data);
+  const recordedActivity = data.meta?.activity_source === "recorded_file_activity";
+  if (!model.events.length) return emptyOption(h, true, recordedActivity);
   const layoutStep = Number(data.meta?.render_layout_step);
   const hasLayoutStep = Number.isInteger(layoutStep);
   if (!Number.isFinite(model.firstMs) || (!hasLayoutStep && cursorMs < model.firstMs)) {
@@ -1323,7 +1362,7 @@ export function repositoryNebula(data, cursorMs, h) {
   const points = current.nodes.map((node) => {
     const age = current.actionStep - node.lastStep;
     const strength = age <= model.attentionSteps
-      ? ({ read: 0.35, write: 0.75, create: 1, rename: 0.8 }[node.focusType] ?? 0)
+      ? ({ open: 0.35, read: 0.35, write: 0.75, create: 1, rename: 0.8 }[node.focusType] ?? 0)
         * (node.focusScale ?? 1)
         * 2 ** (-age / model.attentionHalfLife)
       : 0;
@@ -1346,6 +1385,7 @@ export function repositoryNebula(data, cursorMs, h) {
       directory: parentDirectory(node.path),
       visits: node.visits,
       sessionCount: node.sessionCount,
+      lastStatus: node.lastStatus,
       importance: node.importance,
       directoryShare: node.directoryShare,
       baseSize: node.baseSize,
@@ -1369,7 +1409,7 @@ export function repositoryNebula(data, cursorMs, h) {
         opacity: baseline * node.opacity,
         shadowBlur: 1 + 4 * node.importance + 20 * strength,
         shadowColor: strength > 0
-          ? node.focusType === "read" ? PAINT.readShadow : PAINT.writeShadow
+          ? node.focusType === "read" || node.focusType === "open" ? PAINT.readShadow : PAINT.writeShadow
           : rgbString(node.color, 0.65),
       },
     };
@@ -1377,6 +1417,10 @@ export function repositoryNebula(data, cursorMs, h) {
 
   const scopes = scopeAttention(points);
   const reads = readAttention(points);
+  const opens = points.filter((point) => point.focusType === "open" && point.strength > 0)
+    .map((point) => ring(point, point.symbolSize + 8,
+      point.lastStatus === "denied" ? PAINT.del : PAINT.scopeRing,
+      0.35 + Math.min(0.55, point.strength)));
 
   const writes = points.filter((point) => point.focusType === "write" && point.age <= model.attentionSteps)
     .flatMap((point) => [0, 0.34].map((offset) => {
@@ -1421,11 +1465,16 @@ export function repositoryNebula(data, cursorMs, h) {
   const tooltip = ({ data: row = {} }) => row.path ? [
     row.path,
     `path area: ${row.directory}`,
-    `${row.visits} recorded file actions · ${row.sessionCount} sessions · depth ${row.depth}`,
+    recordedActivity
+      ? `${row.visits} recorded file-open requests · depth ${row.depth}`
+      : `${row.visits} recorded file actions · ${row.sessionCount} sessions · depth ${row.depth}`,
     `decayed importance: ${Math.round(100 * row.importance)}% · directory share: ${Math.round(100 * row.directoryShare)}%`,
     `first observed: ${row.firstAction} · ${new Date(row.firstTs).toISOString()}`,
     row.bornNear ? `entered near: ${row.bornNear}` : "entered at repository center",
-    `latest: ${row.lastVendor} · agent-session · session ${row.lastSession}`,
+    recordedActivity
+      ? `latest: recorded activity · ${row.lastStatus} · operation ${row.lastSession}`
+      : `latest: ${row.lastVendor} · agent-session · session ${row.lastSession}`,
+    ...(recordedActivity ? ["A file-open record does not establish a read, write, or file change."] : []),
   ].join("\n") : "";
 
   return {
@@ -1461,7 +1510,10 @@ export function repositoryNebula(data, cursorMs, h) {
           },
         },
       ],
-    }, directoryLegend(points, current, model)],
+    }, directoryLegend(points, current, model), ...(!model.actions.length ? [activityMessage(
+      "No repository file activity is available",
+      `${model.events.length} recorded tool events remain available on the timeline.`,
+    )] : [])],
     series: [
       {
         id: "files", name: "files", type: "scatter", z: 3,
@@ -1479,6 +1531,10 @@ export function repositoryNebula(data, cursorMs, h) {
       {
         id: "write-ripples", name: "writes", type: "scatter", silent: true, z: 6,
         animationDurationUpdate: 180, data: writes,
+      },
+      {
+        id: "open-rings", name: "file-open requests", type: "scatter", silent: true, z: 6,
+        animationDurationUpdate: 180, data: opens,
       },
       {
         id: "lifecycle", name: "create / rename / delete", type: "scatter", silent: true, z: 7,

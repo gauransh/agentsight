@@ -5,9 +5,10 @@
 //! local AI-agent sessions.
 
 mod export;
+mod recorded;
 mod repository;
 
-pub use export::{CompactRate, run_vis};
+pub use export::{CompactRate, run_vis, run_vis_with_trace};
 pub use repository::{
     FileAction, RepositoryEvent, RepositoryTrace, RepositoryTraceOptions, build_repository_trace,
 };
