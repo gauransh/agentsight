@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build",
-    "test": "node --test repository-nebula.test.mjs"
+    "test": "node --experimental-vm-modules --test *.test.mjs"
   },
   "dependencies": {
     "d3-force": "3.0.0",

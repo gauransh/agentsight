@@ -94,25 +94,61 @@ pub fn run_vis(
     transcript: Option<&Path>,
     run_id: Option<&str>,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    run_vis_with_trace(
+        repo,
+        outputs,
+        global,
+        compact_rate,
+        transcript,
+        run_id,
+        None,
+    )
+}
+
+pub fn run_vis_with_trace(
+    repo: &Path,
+    outputs: &[PathBuf],
+    global: bool,
+    compact_rate: CompactRate,
+    transcript: Option<&Path>,
+    run_id: Option<&str>,
+    trace_json: Option<&Path>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    if trace_json.is_some() && (transcript.is_some() || global) {
+        return Err("--trace-json cannot be combined with --transcript or --global".into());
+    }
     let started = Instant::now();
     let outputs = requested_outputs(outputs)?;
     eprintln!("[evolution 1/5] repository  {}", repo.display());
-    match transcript {
-        Some(path) => eprintln!(
+    match (trace_json, transcript) {
+        (Some(path), _) => eprintln!(
+            "[evolution 2/5] activity    recorded operation  {}",
+            path.display()
+        ),
+        (_, Some(path)) => eprintln!(
             "[evolution 2/5] sessions    one transcript  {}",
             path.display()
         ),
-        None => eprintln!(
+        _ => eprintln!(
             "[evolution 2/5] sessions    scanning Claude + Codex + Gemini + Cursor{}",
             if global { " globally" } else { "" }
         ),
     }
     let scan = Instant::now();
-    let trace = build_repository_trace(&RepositoryTraceOptions {
-        repo: repo.into(),
-        global,
-        transcript: transcript.map(PathBuf::from),
-    })?;
+    let (trace, activity_partial) = match trace_json {
+        Some(path) => {
+            let input = crate::recorded::read_trace(path, run_id)?;
+            (input.trace, Some(input.partial))
+        }
+        None => (
+            build_repository_trace(&RepositoryTraceOptions {
+                repo: repo.into(),
+                global,
+                transcript: transcript.map(PathBuf::from),
+            })?,
+            None,
+        ),
+    };
     eprintln!(
         "[evolution 3/5] actions     {} sessions · {} source events · {} tool actions · {} file actions · {:.1}s",
         trace.session_count,
@@ -128,7 +164,9 @@ pub fn run_vis(
             "endpoint_revision": trace.revision,
             "window_start_ms": trace.start_ms,
             "window_end_ms": trace.end_ms,
-            "session_scope": if transcript.is_some() {
+            "session_scope": if trace_json.is_some() {
+                "operation_recorded_activity"
+            } else if transcript.is_some() {
                 "single_session"
             } else if trace.global {
                 "global_tool_operations"
@@ -139,8 +177,10 @@ pub fn run_vis(
             // consumer can pair it with that run's terminal recording without
             // parsing the document. Absent (not null) when unknown: a reader
             // must not mistake "we did not look" for "there is none".
-            "session_id": single_session_id(&trace.events),
+            "session_id": if trace_json.is_some() { None } else { single_session_id(&trace.events) },
             "run_id": run_id,
+            "activity_source": if trace_json.is_some() { "recorded_file_activity" } else { "native_transcript" },
+            "activity_partial": activity_partial,
         },
         "events": trace.events,
         "commits": trace.commits_ms.into_iter().map(|committed_at_ms| json!({ "committed_at_ms": committed_at_ms })).collect::<Vec<_>>(),

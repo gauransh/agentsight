@@ -26,8 +26,11 @@ struct Cli {
     /// Render exactly this one session transcript instead of discovering every
     /// local session. One file is one session, so this is what makes a graph
     /// belong to a single run.
-    #[arg(long, conflicts_with = "global")]
+    #[arg(long, conflicts_with_all = ["global", "trace_json"])]
     transcript: Option<PathBuf>,
+    /// Render a bounded, run-correlated recorded file activity trace.
+    #[arg(long, conflicts_with_all = ["global", "transcript"], requires = "run_id")]
+    trace_json: Option<PathBuf>,
     /// Correlation id copied verbatim into the document metadata.
     #[arg(long)]
     run_id: Option<String>,
@@ -35,12 +38,13 @@ struct Cli {
 
 fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let cli = Cli::parse();
-    agentvis::run_vis(
+    agentvis::run_vis_with_trace(
         &cli.path,
         &cli.outputs,
         cli.global,
         cli.compact_rate,
         cli.transcript.as_deref(),
         cli.run_id.as_deref(),
+        cli.trace_json.as_deref(),
     )
 }

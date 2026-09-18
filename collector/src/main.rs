@@ -217,6 +217,9 @@ enum Commands {
         /// a graph belong to a single run.
         #[arg(long, conflicts_with = "global")]
         transcript: Option<PathBuf>,
+        /// Render recorded file activity correlated to --run-id.
+        #[arg(long, conflicts_with_all = ["global", "transcript"], requires = "run_id")]
+        trace_json: Option<PathBuf>,
         /// Correlation id copied verbatim into the document metadata.
         #[arg(long)]
         run_id: Option<String>,
@@ -439,13 +442,15 @@ async fn run() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
             compact_rate,
             transcript,
             run_id,
-        } => agentvis::run_vis(
+            trace_json,
+        } => agentvis::run_vis_with_trace(
             path,
             outputs,
             *global,
             *compact_rate,
             transcript.as_deref(),
             run_id.as_deref(),
+            trace_json.as_deref(),
         )?,
         Commands::Bind {
             qr,

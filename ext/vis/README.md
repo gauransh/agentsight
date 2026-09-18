@@ -35,6 +35,33 @@ action intervals and encoded at 30 fps. Use `--compact-rate full` to encode
 every action frame. HTML always retains every action and ignores media
 compaction.
 
+HTML opens on the latest recorded event so the full graph is visible immediately.
+Press Play to replay the session from its first event. If no agent tool events are
+available, the graph says so and disables playback without inventing file activity
+or an event timestamp.
+
+## Recorded file activity
+
+An operation without a native agent transcript can use an explicitly attributed
+recorded-activity trace with the same Agent Session Evolution Graph renderer:
+
+```bash
+agentvis --trace-json operation-trace.json --run-id RUN_ID -o evolution.html
+```
+
+The input envelope is `{ "run_id": "RUN_ID", "partial": false, "trace": ... }`.
+`trace` is a `RepositoryTrace` whose events belong to that operation and use
+`vendor: "recorded-activity"`, `category: "file"`, the recorded `FileOpen`,
+`FileOpenReadOnly`, or `FileOpenReadWrite` action, its `allowed`, `denied`, or
+`unknown` decision, and file actions with `access: "open"`. The importer checks
+the run ID, bounded input, and this restricted vocabulary. `--trace-json`
+conflicts with `--transcript` and `--global`.
+
+These stars represent recorded file-open requests. They do not establish that
+file contents were read, written, or changed. The artifact identifies its source,
+shows denials, and marks partial audit coverage when `partial` is true. It does
+not claim a native agent session or generate synthetic tool calls.
+
 By default, discovery includes every Claude, Codex, and Gemini session whose
 cwd, project identity, or Git remote belongs to the worktree. `--global` also
 searches sessions rooted elsewhere and retains their absolute-path operations

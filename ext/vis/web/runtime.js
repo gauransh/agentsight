@@ -33,6 +33,7 @@ let moments = [];
 let frameTimes = [];
 let playing = 0;
 function scopeLabel(scope) {
+  if (scope === "operation_recorded_activity") return "this operation's recorded file activity";
   if (scope === "global_tool_operations") return "all local sessions targeting repository";
   if (scope === "single_session") return "this session";
   return "repository sessions";
@@ -40,7 +41,11 @@ function scopeLabel(scope) {
 
 const exportMode = new URLSearchParams(location.search).has("still");
 
-const timeLabel = (value) => new Date(value).toISOString().replace("T", " ").replace(".000Z", " UTC");
+const recordedActivity = () => data?.meta?.activity_source === "recorded_file_activity";
+
+const timeLabel = (value) => value === null
+  ? (recordedActivity() ? "No recorded file activity" : "No session activity")
+  : new Date(value).toISOString().replace("T", " ").replace(".000Z", " UTC");
 const dayLabel = (value) => new Date(value).toISOString().slice(0, 10);
 
 function optionAt(value, step) {
@@ -56,6 +61,7 @@ function optionAt(value, step) {
 }
 
 function isCommitFrame(value, step) {
+  if (value === null) return false;
   const found = frameTimes.findIndex((time) => time >= value);
   const index = Number.isInteger(step) ? step : (found < 0 ? frameTimes.length - 1 : found);
   const start = index > 0 ? frameTimes[index - 1] : data.meta.window_start_ms - 1;
@@ -107,27 +113,48 @@ function toggle() {
 function initialize(payload) {
   data = payload;
   moments = nebulaVisualMoments(data);
-  frameTimes = moments.length > 2 ? moments.slice(1, -1) : [data.meta.window_end_ms];
+  const hasActivity = moments.length > 2;
+  // Keep one exportable empty frame without presenting the zero timestamp used
+  // by an absent transcript as a real event on January 1, 1970.
+  frameTimes = hasActivity ? moments.slice(1, -1) : [null];
   chart = init($("chart"), null, { renderer: "canvas", width: 1200, height: 675 });
   $("view-title").textContent = "Agent Session Evolution Graph";
-  $("view-note").textContent = "Files are stars. Root entries define color; paths define attraction.";
+  $("view-note").textContent = recordedActivity()
+    ? "Files are stars. Recorded file-open requests define attention; decisions remain visible."
+    : "Files are stars. Root entries define color; paths define attraction.";
+  document.querySelector(".mode").textContent = recordedActivity() ? "Recorded event time" : "Agent event time";
+  if (recordedActivity()) {
+    document.querySelector(".legend").textContent = "File-open requests · red rings mark denials · no read, write, or file change is inferred";
+  }
+  $("chart").setAttribute("role", "img");
+  $("chart").setAttribute("aria-label", hasActivity
+    ? "Agent Session Evolution Graph. Use the timeline to replay recorded activity."
+    : recordedActivity() ? "No recorded file activity is available" : "No session activity is available");
   $("provenance").textContent = [
     `repository: ${data.meta.repository}`,
     `scope: ${scopeLabel(data.meta.session_scope)}`,
     `revision: ${data.meta.endpoint_revision.slice(0, 12)}`,
-    `window: ${dayLabel(data.meta.window_start_ms)} → ${dayLabel(data.meta.window_end_ms)}`,
+    hasActivity
+      ? `window: ${dayLabel(data.meta.window_start_ms)} → ${dayLabel(data.meta.window_end_ms)}`
+      : recordedActivity() ? "window: no recorded file activity" : "window: no recorded session activity",
+    ...(recordedActivity() ? ["source: recorded file-open activity", ...(data.meta.activity_partial ? ["coverage: partial audit records"] : [])] : []),
     "generator: evolution renderer",
   ].join(" · ");
   Object.assign($("timeline"), {
-    min: "0", max: String(frameTimes.length - 1), step: "1",
+    min: "0", max: String(frameTimes.length - 1), step: "1", disabled: frameTimes.length < 2,
   });
+  $("timeline").setAttribute("aria-label", recordedActivity() ? "Recorded file activity timeline" : "Session activity timeline");
+  $("play").disabled = frameTimes.length < 2;
+  $("play").setAttribute("aria-label", recordedActivity() ? "Replay recorded file activity" : "Replay session activity");
   $("timeline").addEventListener("input", () => {
     stop();
     const index = Number($("timeline").value);
     render(frameTimes[index], index);
   });
   $("play").addEventListener("click", toggle);
-  render(frameTimes[0], 0);
+  // Open on the full recorded graph. Play already rewinds a finished graph,
+  // so playback still starts at the first event when the operator requests it.
+  render(frameTimes.at(-1), frameTimes.length - 1);
   window.__AGENTVIS_READY__ = true;
   window.__AGENTVIS_FRAME_COUNT__ = frameTimes.length;
 }
@@ -169,11 +196,11 @@ function composeFrame(canvas = document.createElement("canvas")) {
   context.fillStyle = palette.text; context.font = "28px 'Inter Variable',Inter,'SF Pro Display',system-ui,sans-serif";
   context.fillText("Agent Session Evolution Graph", 32, 72);
   context.fillStyle = palette.muted; context.font = "12px 'Inter Variable',Inter,'SF Pro Display',system-ui,sans-serif";
-  context.fillText("Files are stars. Root entries define color; paths define attraction.", 32, 96);
+  context.fillText($("view-note").textContent, 32, 96);
   context.strokeStyle = "rgba(135,160,190,.22)";
   context.beginPath(); context.roundRect(1096, 24, 136, 28, 14); context.stroke();
   context.fillStyle = "#8c9bb0"; context.font = "11px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace";
-  context.fillText("AGENT EVENT TIME", 1108, 42);
+  context.fillText(recordedActivity() ? "RECORDED EVENT TIME" : "AGENT EVENT TIME", 1108, 42);
   context.strokeStyle = palette.line;
   context.beginPath(); context.moveTo(32, 803); context.lineTo(1232, 803); context.stroke();
   const progress = frameIndex / Math.max(1, frameTimes.length - 1);
@@ -185,7 +212,9 @@ function composeFrame(canvas = document.createElement("canvas")) {
   context.fillStyle = "#61d7bf"; context.fillRect(89, 834, 935 * progress, 4);
   context.fillStyle = "#9bacc0"; context.font = "10px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace";
   context.fillText(timeLabel(cursor), 1103, 839);
-  const legends = [["#f7ffff", "read attention"], ["#ff9678", "write ripple"],
+  const legends = recordedActivity()
+    ? [["#b7cce2", "file-open request"], ["#ff647c", "denied request"], ["#71839a", "no read, write, or file change inferred"]]
+    : [["#f7ffff", "read attention"], ["#ff9678", "write ripple"],
     ["#75f0a9", "create"], ["#63dfff", "rename"], ["#ff647c", "delete"], ["#efd265", "commit frame"]];
   let legendX = 32;
   context.font = "10px ui-monospace,'SF Mono',SFMono-Regular,Menlo,Consolas,monospace";
