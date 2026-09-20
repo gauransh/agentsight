@@ -42,8 +42,10 @@ jobs:
 
   mirror:
     needs: validate
-    # Reviewed #337 implementation; upgrade this immutable pin in a separate review.
-    uses: gauransh/itsm-sandbox-policy-engine/.github/workflows/mirror-ecr.yml@918e1ff54bfda7b8ae31058726e0d3bf9979643a
+    # Exact sandbox main commit where the reusable workflow is present. The
+    # former #337 head pin resolves as Git data but GitHub Actions rejects it
+    # with 422 because the reusable workflow is not available at that ref.
+    uses: gauransh/itsm-sandbox-policy-engine/.github/workflows/mirror-ecr.yml@d8b7803115756219a138c54ae21fc0f640a60562
     permissions:
       contents: read
       packages: read
