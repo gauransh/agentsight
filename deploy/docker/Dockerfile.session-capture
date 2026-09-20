@@ -40,8 +40,9 @@
 # assert the vendored copies exist.
 #
 # Tag: the floating `1-bookworm` rather than a pinned patch release. The crates
-# here declare rust-version 1.87 and edition 2024, so any current stable works,
-# and bookworm is what fixes the runtime glibc below.
+# here declare rust-version 1.87 and edition 2024, so any current stable works.
+# The resulting collector needs only bookworm's glibc; the runtime below is
+# newer because it must also execute the prebuilt eBPF loaders.
 FROM rust:1-bookworm AS builder
 
 ENV CARGO_TARGET_DIR=/build/target
@@ -74,15 +75,15 @@ RUN cargo build --release --locked --manifest-path collector/Cargo.toml
 # ---------------------------------------------------------------------------
 # Runtime stage
 # ---------------------------------------------------------------------------
-# bookworm-slim matches the builder's glibc. The collector itself only needs
-# libc; libelf1 and zlib1g are for the eBPF loaders it extracts to a temp dir
-# and spawns when it runs privileged on a Linux host (same two libraries the
-# repository's other images install). zlib1g is already in the base image —
-# named anyway so the dependency is legible rather than inherited by luck.
-FROM debian:bookworm-slim AS runtime
+# The vendored eBPF loaders are prebuilt on glibc 2.38. Bookworm provides 2.36,
+# so the collector could start and bind its bridge while every loader failed
+# immediately with `GLIBC_2.38 not found`. Trixie provides a newer compatible
+# libc and keeps the collector binary built on bookworm runnable. libelf1t64
+# and zlib1g are the loaders' only shared-library dependencies.
+FROM debian:trixie-slim AS runtime
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libelf1 zlib1g \
+    && apt-get install -y --no-install-recommends libelf1t64 zlib1g \
     && rm -rf /var/lib/apt/lists/*
 
 # Already stripped: collector's [profile.release] sets strip = "symbols".
@@ -94,6 +95,20 @@ COPY --from=builder /build/target/release/agentsight /usr/local/bin/agentsight
 # /run/aro inherits. A bind mount or a tmpfs keeps its own mode instead, and a
 # default tmpfs (1777) will be rejected at startup — see deploy/docker/README.md.
 RUN install -d -m 0700 /run/aro
+
+# Exercise the real default path while the image is built. The collector must
+# keep serving until timeout, bind the bridge, and start its embedded loaders
+# without a libc-version failure. This caught the bookworm/GLIBC_2.38 mismatch
+# that an `agentsight --version` smoke test cannot see.
+RUN set -eu; \
+    log="$(mktemp)"; \
+    rc=0; \
+    timeout 5s agentsight top --bridge-socket /run/aro/build-smoke.sock --headless >"$log" 2>&1 || rc=$?; \
+    cat "$log"; \
+    test "$rc" -eq 124; \
+    grep -F "Evidence bridge listening" "$log"; \
+    if grep -F "GLIBC_" "$log"; then exit 1; fi; \
+    rm -f "$log" /run/aro/build-smoke.sock
 
 # Root, deliberately — three reasons, none of which a USER line can satisfy:
 #   1. The rows this component exists to serve describe processes on the HOST,
