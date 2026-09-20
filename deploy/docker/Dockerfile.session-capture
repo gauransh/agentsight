@@ -19,29 +19,60 @@
 #   docker build -f deploy/docker/Dockerfile.session-capture .
 
 # ---------------------------------------------------------------------------
-# Build stage
+# BPF loader build stage
 # ---------------------------------------------------------------------------
-# The full (non-slim) Rust image, deliberately: three dependencies compile C
+# `agentsight` embeds three native userspace loaders with include_bytes!(). A
+# committed loader can have a newer libc floor than this image even when the
+# Rust binary itself is built on bookworm (the 2026-09-20 production failure
+# was exactly that: GLIBC_2.38 loader bytes inside a GLIBC_2.36 runtime). Build
+# the loaders from the pinned submodules on bookworm instead. This makes their
+# ABI part of the image build rather than an unrecorded property of whichever
+# developer last refreshed vendor/bpf.
+FROM debian:bookworm-slim AS bpf-builder
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        binutils \
+        clang \
+        gcc \
+        libc6-dev \
+        libelf-dev \
+        llvm \
+        make \
+        pkg-config \
+        zlib1g-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY libbpf ./libbpf
+COPY bpftool ./bpftool
+COPY vmlinux ./vmlinux
+COPY bpf ./bpf
+
+# Only the three loaders embedded by agentsight-capture belong in this image.
+# Building them here also exercises their pinned libbpf/bpftool source closure.
+RUN make -C bpf process sslsniff stdiocap
+
+# Fail in the producer stage if any loader is malformed before Cargo embeds it.
+# `--help` initializes the dynamic linker without requiring BPF privileges.
+RUN bpf/process --help >/dev/null \
+    && bpf/sslsniff --help >/dev/null \
+    && bpf/stdiocap --help >/dev/null
+
+# ---------------------------------------------------------------------------
+# Rust build stage
+# ---------------------------------------------------------------------------
+# The full (non-slim) Rust image is deliberate: three dependencies compile C
 # sources (ring, zstd-sys, and libsqlite3-sys via rusqlite's `bundled`), and the
-# buildpack-deps base already carries the cc/make toolchain they drive — so this
-# stage needs no apt layer at all. None of the three links a system library:
-# `bundled`/vendored C sources are compiled in, which is why no -dev packages
-# appear here either.
+# buildpack-deps base already carries the cc/make toolchain they drive. None of
+# the three links a system library.
 #
-# What is NOT here, and why the build stays cheap:
-#   * no clang/llvm/libbpf/kernel headers — the three eBPF loaders are prebuilt
-#     ELF objects committed at agentsight-capture/vendor/bpf/{process,sslsniff,
-#     stdiocap} and the Rust build only include_bytes!()s them (Linux only);
-#   * no Node stage — the web UI bundle is committed at
-#     collector/vendor/frontend/dist and embedded with rust-embed.
-# Both vendored trees are what `make build` / AGENTSIGHT_SYNC_VENDOR=1 would
-# regenerate. Leaving that variable unset (the default) is what keeps the BPF C
-# build and `npm run build` out of this image; the build scripts then only
-# assert the vendored copies exist.
+# No Node stage is needed: the web UI bundle is committed at
+# collector/vendor/frontend/dist and embedded with rust-embed.
 #
 # Tag: the floating `1-bookworm` rather than a pinned patch release. The crates
 # here declare rust-version 1.87 and edition 2024, so any current stable works,
-# and bookworm is what fixes the runtime glibc below.
+# and bookworm matches both the BPF producer and runtime libc below.
 FROM rust:1-bookworm AS builder
 
 ENV CARGO_TARGET_DIR=/build/target
@@ -61,6 +92,13 @@ COPY ext/session ./ext/session
 COPY ext/analysis ./ext/analysis
 COPY ext/vis ./ext/vis
 COPY collector ./collector
+
+# Replace the committed developer convenience copies with the three loaders
+# produced above. Cargo's build.rs checks this directory and include_bytes!()
+# embeds these exact bytes into the collector.
+COPY --from=bpf-builder /src/bpf/process ./agentsight-capture/vendor/bpf/process
+COPY --from=bpf-builder /src/bpf/sslsniff ./agentsight-capture/vendor/bpf/sslsniff
+COPY --from=bpf-builder /src/bpf/stdiocap ./agentsight-capture/vendor/bpf/stdiocap
 
 # No --features flag: `bridge` is a feature of agentsight-protocol, not of the
 # collector, and agentsight-capture enables it unconditionally. Cargo unifies
@@ -84,6 +122,17 @@ FROM debian:bookworm-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends libelf1 zlib1g \
     && rm -rf /var/lib/apt/lists/*
+
+# Runtime ABI gate. These are the exact bytes the builder embedded above; run
+# them on the final base before copying the collector so a future base/stage
+# drift fails the image build instead of a live capture subprocess.
+COPY --from=bpf-builder /src/bpf/process /tmp/agentsight-loader-smoke/process
+COPY --from=bpf-builder /src/bpf/sslsniff /tmp/agentsight-loader-smoke/sslsniff
+COPY --from=bpf-builder /src/bpf/stdiocap /tmp/agentsight-loader-smoke/stdiocap
+RUN /tmp/agentsight-loader-smoke/process --help >/dev/null \
+    && /tmp/agentsight-loader-smoke/sslsniff --help >/dev/null \
+    && /tmp/agentsight-loader-smoke/stdiocap --help >/dev/null \
+    && rm -rf /tmp/agentsight-loader-smoke
 
 # Already stripped: collector's [profile.release] sets strip = "symbols".
 COPY --from=builder /build/target/release/agentsight /usr/local/bin/agentsight

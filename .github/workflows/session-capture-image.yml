@@ -26,9 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
-        # No `submodules: recursive`: libbpf/ and bpftool/ are only needed to
-        # compile the BPF C programs, and this image consumes the prebuilt
-        # loaders committed under agentsight-capture/vendor/bpf/ instead.
+        # The image rebuilds its embedded BPF userspace loaders on bookworm,
+        # the same libc release used at runtime. Do not fall back to the
+        # committed developer-built copies: a loader built on a newer host can
+        # make the collector's otherwise-healthy image fail at exec time.
+        with:
+          submodules: recursive
 
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
 
