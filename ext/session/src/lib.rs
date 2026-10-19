@@ -12,6 +12,10 @@
 mod parser;
 mod process_match;
 mod types;
+mod work_request;
+pub use work_request::{
+    MAX_WORK_REQUEST_BYTES, MAX_WORK_SOURCE_BYTES, first_user_request, request_text,
+};
 #[cfg(target_arch = "wasm32")]
 mod component;
 
